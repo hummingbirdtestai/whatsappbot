@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
-import { X, Save } from 'lucide-react';
-import { useMCQContext } from '../context/MCQContext';
+import React, { useState } from "react";
+import { X, Save } from "lucide-react";
+import { useMCQContext } from "../context/MCQContext";
 
 interface EditMCQModalProps {
   mcq: any;
@@ -15,7 +15,7 @@ export const EditMCQModal: React.FC<EditMCQModalProps> = ({ mcq, onClose }) => {
     correctAnswer: mcq.correctAnswer,
     category: mcq.category,
     difficulty: mcq.difficulty,
-    explanation: mcq.explanation || '',
+    explanation: mcq.explanation || "",
   });
 
   const handleOptionChange = (index: number, value: string) => {
@@ -28,8 +28,8 @@ export const EditMCQModal: React.FC<EditMCQModalProps> = ({ mcq, onClose }) => {
     e.preventDefault();
     try {
       const response = await fetch(`/api/mcqs/${mcq.id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           question: formData.question,
           options: formData.options.reduce((acc, option, index) => {
@@ -42,7 +42,7 @@ export const EditMCQModal: React.FC<EditMCQModalProps> = ({ mcq, onClose }) => {
       });
 
       if (!response.ok) {
-        throw new Error('Failed to update MCQ');
+        throw new Error("Failed to update MCQ");
       }
 
       const updatedMCQ = await response.json();
@@ -58,10 +58,7 @@ export const EditMCQModal: React.FC<EditMCQModalProps> = ({ mcq, onClose }) => {
       <div className="bg-slate-800 rounded-xl p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between mb-6">
           <h3 className="text-xl font-bold text-white">Edit MCQ</h3>
-          <button
-            onClick={onClose}
-            className="text-slate-400 hover:text-white"
-          >
+          <button onClick={onClose} className="text-slate-400 hover:text-white">
             <X size={24} />
           </button>
         </div>
@@ -73,7 +70,9 @@ export const EditMCQModal: React.FC<EditMCQModalProps> = ({ mcq, onClose }) => {
             </label>
             <textarea
               value={formData.question}
-              onChange={(e) => setFormData({ ...formData, question: e.target.value })}
+              onChange={(e) =>
+                setFormData({ ...formData, question: e.target.value })
+              }
               className="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500"
               rows={3}
               required
@@ -91,7 +90,9 @@ export const EditMCQModal: React.FC<EditMCQModalProps> = ({ mcq, onClose }) => {
                     type="radio"
                     name="correctAnswer"
                     checked={formData.correctAnswer === index}
-                    onChange={() => setFormData({ ...formData, correctAnswer: index })}
+                    onChange={() =>
+                      setFormData({ ...formData, correctAnswer: index })
+                    }
                     className="text-emerald-600 focus:ring-emerald-500"
                   />
                   <input
@@ -115,7 +116,9 @@ export const EditMCQModal: React.FC<EditMCQModalProps> = ({ mcq, onClose }) => {
               <input
                 type="text"
                 value={formData.category}
-                onChange={(e) => setFormData({ ...formData, category: e.target.value })}
+                onChange={(e) =>
+                  setFormData({ ...formData, category: e.target.value })
+                }
                 className="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500"
                 required
               />
@@ -126,7 +129,9 @@ export const EditMCQModal: React.FC<EditMCQModalProps> = ({ mcq, onClose }) => {
               </label>
               <select
                 value={formData.difficulty}
-                onChange={(e) => setFormData({ ...formData, difficulty: e.target.value })}
+                onChange={(e) =>
+                  setFormData({ ...formData, difficulty: e.target.value })
+                }
                 className="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
               >
                 <option value="Easy">Easy</option>
@@ -142,7 +147,9 @@ export const EditMCQModal: React.FC<EditMCQModalProps> = ({ mcq, onClose }) => {
             </label>
             <textarea
               value={formData.explanation}
-              onChange={(e) => setFormData({ ...formData, explanation: e.target.value })}
+              onChange={(e) =>
+                setFormData({ ...formData, explanation: e.target.value })
+              }
               className="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500"
               rows={3}
               placeholder="Explain the correct answer..."

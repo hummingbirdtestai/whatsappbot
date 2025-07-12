@@ -17,21 +17,10 @@ export const MCQList: React.FC = () => {
     ...Array.from(new Set(mcqs.map((m) => m.category))),
   ];
 
-  //   const filteredMCQs = mcqs.filter((mcq) => {
-  //     const q = mcq.question.toLowerCase(),
-  //       c = mcq.category.toLowerCase();
-  //     return (
-  //       (q.includes(searchTerm.toLowerCase()) ||
-  //         c.includes(searchTerm.toLowerCase())) &&
-  //       (selectedCategory === "all" || mcq.category === selectedCategory)
-  //     );
-  //   });
-
   const filteredMCQs = mcqs.filter((mcq) => {
-    const q = mcq.question?.toLowerCase() || "";
-    const c = mcq.category?.toLowerCase() || "";
+    const q = (mcq.question ?? "").toLowerCase();
+    const c = (mcq.category ?? "").toLowerCase();
     const search = searchTerm.toLowerCase();
-
     return (
       (q.includes(search) || c.includes(search)) &&
       (selectedCategory === "all" || mcq.category === selectedCategory)
@@ -57,6 +46,8 @@ export const MCQList: React.FC = () => {
           {totalPages}
         </div>
       </div>
+
+      {/* Search & Category */}
       <div className="flex flex-col sm:flex-row gap-4">
         <div className="relative flex-1">
           <Search
@@ -81,8 +72,8 @@ export const MCQList: React.FC = () => {
             onChange={(e) => setSelectedCategory(e.target.value)}
             className="pl-10 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
           >
-            {categories.map((cat) => (
-              <option key={cat} value={cat}>
+            {categories.map((cat, idx) => (
+              <option key={cat + idx} value={cat}>
                 {cat === "all" ? "All Categories" : cat}
               </option>
             ))}
@@ -145,7 +136,19 @@ export const MCQList: React.FC = () => {
                   <td className="px-6 py-4">
                     <div className="flex items-center gap-2">
                       <button
-                        onClick={() => setViewingMCQ(mcq)}
+                        onClick={() =>
+                          setViewingMCQ({
+                            ...mcq,
+                            options: Array.isArray(mcq.options)
+                              ? mcq.options
+                              : Object.values(mcq.options),
+                            correctAnswer: Array.isArray(mcq.options)
+                              ? mcq.correctAnswer
+                              : Object.keys(mcq.options).indexOf(
+                                  mcq.answer || mcq.correctAnswer || ""
+                                ),
+                          })
+                        }
                         className="p-1 text-slate-400 hover:text-blue-400"
                         title="View MCQ"
                       >
@@ -185,7 +188,7 @@ export const MCQList: React.FC = () => {
           </table>
         </div>
 
-        {/* Pagination */}
+        {/* Pagination Controls */}
         {totalPages > 1 && (
           <div className="flex items-center justify-between px-6 py-3 bg-slate-700">
             <div className="text-sm text-slate-400">
@@ -194,7 +197,6 @@ export const MCQList: React.FC = () => {
               {filteredMCQs.length} MCQs
             </div>
             <div className="flex items-center gap-4">
-              {/* First, Prev */}
               <button
                 onClick={() => setCurrentPage(1)}
                 disabled={currentPage === 1}
@@ -203,13 +205,12 @@ export const MCQList: React.FC = () => {
                 First
               </button>
               <button
-                onClick={() => setCurrentPage((prev) => Math.max(1, prev - 1))}
+                onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
                 disabled={currentPage === 1}
                 className="px-3 py-1 bg-slate-600 text-white rounded disabled:opacity-50 hover:bg-slate-500"
               >
                 Previous
               </button>
-              {/* Page numbers */}
               <div className="flex items-center gap-1">
                 {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
                   let pageNum =
@@ -233,10 +234,9 @@ export const MCQList: React.FC = () => {
                   );
                 })}
               </div>
-              {/* Next, Last */}
               <button
                 onClick={() =>
-                  setCurrentPage((prev) => Math.min(totalPages, prev + 1))
+                  setCurrentPage((p) => Math.min(totalPages, p + 1))
                 }
                 disabled={currentPage === totalPages}
                 className="px-3 py-1 bg-slate-600 text-white rounded disabled:opacity-50 hover:bg-slate-500"
@@ -256,13 +256,13 @@ export const MCQList: React.FC = () => {
             </div>
           </div>
         )}
-        {/* No results message */}
+
         {filteredMCQs.length === 0 && mcqs.length > 0 && (
           <div className="text-center py-8 text-slate-400">
             No MCQs match your current filters
           </div>
         )}
-        {/* No MCQs at all */}
+
         {mcqs.length === 0 && (
           <div className="text-center py-12">
             <FileText size={48} className="mx-auto text-slate-400 mb-4" />
@@ -274,12 +274,11 @@ export const MCQList: React.FC = () => {
         )}
       </div>
 
-      {/* Edit Modal */}
+      {/* Modals */}
       {editingMCQ && (
         <EditMCQModal mcq={editingMCQ} onClose={() => setEditingMCQ(null)} />
       )}
 
-      {/* View Modal */}
       {viewingMCQ && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
           <div className="bg-slate-800 rounded-xl p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
