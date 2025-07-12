@@ -30,6 +30,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'select', label: 'WhatsApp Quiz Setup', icon: CheckSquare },
     { id: 'tests', label: 'Mock Tests', icon: Calendar },
     { id: 'whatsapp-groups', label: 'WhatsApp Groups', icon: Users },
+    { id: 'whatsapp-session', label: 'WhatsApp Session', icon: CheckSquare },
   ];
 
   return (

@@ -143,7 +143,7 @@ export const UploadMCQ: React.FC = () => {
       const payload = {
         question: mcq.question,
         options: mcq.options,
-        correctAnswer: mcq.correctAnswer,
+        answer: mcq.correctAnswer, // Map correctAnswer to answer
         explanation: mcq.explanation,
       };
       try {

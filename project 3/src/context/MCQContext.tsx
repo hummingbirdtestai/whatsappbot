@@ -213,8 +213,16 @@ export const MCQProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     ));
   };
 
-  const deleteMCQ = (id: string) => {
-    setMCQs(prev => prev.filter(mcq => mcq.id !== id));
+  const deleteMCQ = async (id: string) => {
+    try {
+      const res = await fetch(`/api/mcqs/${id}`, {
+        method: 'DELETE',
+      });
+      if (!res.ok) throw new Error('Failed to delete MCQ');
+      setMCQs(prev => prev.filter(mcq => mcq.id !== id));
+    } catch (err) {
+      alert('Error deleting MCQ: ' + (err instanceof Error ? err.message : err));
+    }
   };
 
   const createMockTest = async (test: Omit<MockTest, 'id' | 'mcqCount' | 'status' | 'createdAt'> & { whatsappGroups?: string[] }) => {

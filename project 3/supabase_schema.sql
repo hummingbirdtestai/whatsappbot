@@ -42,6 +42,7 @@ create table if not exists mock_tests (
   started_at timestamptz,
   completed_at timestamptz,
   status text check (status in ('active', 'completed', 'running')) default 'active',
+  current_mcq int default 0, -- Track progress: number of MCQs published
   created_at timestamptz default now()
 );
 create index if not exists idx_mock_tests_status on mock_tests(status);
@@ -59,4 +60,4 @@ create or replace view category_mcq_counts as
 select c.id, c.name, count(m.id) as mcq_count
 from categories c
 left join mcqs m on m.category_id = c.id
-group by c.id, c.name; 
+group by c.id, c.name;

@@ -6,6 +6,7 @@ import { MCQList } from './components/MCQList';
 import { SelectMCQ } from './components/SelectMCQ';
 import { MockTests } from './components/MockTests';
 import { WhatsAppGroups } from './components/WhatsAppGroups';
+import WhatsAppSession from './components/WhatsAppSession';
 import { MCQProvider } from './context/MCQContext';
 
 function App() {
@@ -32,6 +33,7 @@ function App() {
             {activeTab === 'select' && <SelectMCQ setActiveTab={setActiveTab} />}
             {activeTab === 'tests' && <MockTests />}
             {activeTab === 'whatsapp-groups' && <WhatsAppGroups />}
+            {activeTab === 'whatsapp-session' && <WhatsAppSession />}
           </div>
         </main>
       </div>

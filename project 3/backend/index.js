@@ -1,3 +1,6 @@
+require('dotenv').config({ path: __dirname + '/.env' });
+console.log('Loaded environment variables:', process.env);
+
 process.on('uncaughtException', (err) => {
   console.error('Uncaught Exception:', err);
 });
@@ -7,7 +10,6 @@ process.on('unhandledRejection', (reason, promise) => {
 const express = require('express');
 const cors = require('cors');
 const { createClient } = require('@supabase/supabase-js');
-require('dotenv').config();
 const whatsappBot = require('./whatsappBot');
 
 console.log('SUPABASE_SERVICE_KEY:', process.env.SUPABASE_SERVICE_KEY);
@@ -28,6 +30,8 @@ app.use('/api/quiz-funnels', require('./routes/quizFunnels')(supabase));
 app.use('/api/mock-tests', require('./routes/mockTests')(supabase));
 app.use('/api/dashboard-summary', require('./routes/dashboardSummary')(supabase));
 app.use('/api/whatsapp-groups', require('./routes/whatsappGroups')(supabase));
+const whatsappSessionRoute = require('./routes/whatsappSession')(() => whatsappBot.getSocket());
+app.use('/api/whatsapp-session', whatsappSessionRoute);
 
 // API endpoint to schedule mock test to WhatsApp group
 app.post('/api/schedule-mock-whatsapp', async (req, res) => {
@@ -85,20 +89,24 @@ setInterval(async () => {
 }, 60 * 1000); // Check every minute
 
 async function schedulerLoop() {
-  // 1. Get all running mock tests
-  const { data: runningTests, error } = await supabase.from('mock_tests').select('*').eq('status', 'running');
-  if (error) {
-    console.error('Scheduler: Error fetching running mock tests:', error);
-    return;
-  }
-  for (const test of runningTests) {
-    // Only schedule if not already running
-    if (!runningSchedulers[test.id]) {
-      runningSchedulers[test.id] = true;
-      runMockTest(test).finally(() => {
-        delete runningSchedulers[test.id];
-      });
+  try {
+    // 1. Get all running mock tests
+    const { data: runningTests, error } = await supabase.from('mock_tests').select('*').eq('status', 'running');
+    if (error) {
+      console.error('Scheduler: Error fetching running mock tests:', error);
+      return;
     }
+    for (const test of runningTests) {
+      // Only schedule if not already running
+      if (!runningSchedulers[test.id]) {
+        runningSchedulers[test.id] = true;
+        runMockTest(test).finally(() => {
+          delete runningSchedulers[test.id];
+        });
+      }
+    }
+  } catch (err) {
+    console.error('Scheduler: Unexpected error in schedulerLoop:', err);
   }
 }
 
@@ -110,55 +118,9 @@ async function runMockTest(test) {
       return;
     }
     await whatsappBot.startWhatsAppBot();
-    // Get quiz funnel and MCQs
-    const { data: funnel, error: funnelError } = await supabase.from('quiz_funnels').select('*').eq('id', test.quiz_funnel_id).single();
-    if (funnelError || !funnel) {
-      console.error('Scheduler: Quiz funnel not found:', funnelError);
-      return;
-    }
-    const { data: funnelMCQs, error: funnelMCQsError } = await supabase.from('quiz_funnel_mcqs').select('*').eq('quiz_funnel_id', funnel.id).order('order_index');
-    if (funnelMCQsError || !funnelMCQs) {
-      console.error('Scheduler: Quiz funnel MCQs not found:', funnelMCQsError);
-      return;
-    }
-    const mcqIds = funnelMCQs.map(fm => fm.mcq_id);
-    const { data: mcqs, error: mcqsError } = await supabase.from('mcqs').select('*').in('id', mcqIds);
-    if (mcqsError || !mcqs) {
-      console.error('Scheduler: MCQs not found:', mcqsError);
-      return;
-    }
-    // Find current MCQ index
-    let idx = test.currentMCQ || 0;
-    while (idx < mcqs.length && test.status === 'running') {
-      const mcq = mcqs[idx];
-      const optionsText = Object.entries(mcq.options)
-        .map(([key, val]) => `${key}. ${val}`)
-        .join('\n');
-      const msg = `*Q${idx + 1}:* ${mcq.question}\n${optionsText}`;
-      for (const groupJid of groupJids) {
-        console.log(`Sending MCQ to group: ${groupJid} (Test: ${test.id}, MCQ: ${idx + 1})`);
-        try {
-          await whatsappBot.sendGroupMessage(groupJid, msg);
-        } catch (err) {
-          console.error(`Error sending MCQ to group ${groupJid}:`, err);
-        }
-      }
-      // Update currentMCQ in DB
-      await supabase.from('mock_tests').update({ currentMCQ: idx + 1 }).eq('id', test.id);
-      idx++;
-      // Wait for interval
-      await new Promise(res => setTimeout(res, (test.intervalMinutes || 3) * 60 * 1000));
-      // Re-fetch test status in case it was paused/stopped
-      const { data: updatedTest } = await supabase.from('mock_tests').select('*').eq('id', test.id).single();
-      if (!updatedTest || updatedTest.status !== 'running') break;
-    }
-    // Mark as completed if all MCQs sent
-    if (idx >= mcqs.length) {
-      await supabase.from('mock_tests').update({ status: 'completed' }).eq('id', test.id);
-      for (const groupJid of groupJids) {
-        await whatsappBot.sendGroupMessage(groupJid, '✅ Mock test complete!');
-      }
-      console.log(`Mock test ${test.id} completed.`);
+    // Use the bot's full MCQ flow for each group
+    for (const groupJid of groupJids) {
+      await whatsappBot.scheduleMockTestToGroup(test.id, groupJid);
     }
   } catch (err) {
     console.error('Scheduler: Error running mock test:', err);
@@ -167,7 +129,18 @@ async function runMockTest(test) {
 
 setInterval(schedulerLoop, SCHEDULER_INTERVAL);
 
-const PORT = process.env.PORT || 4000;
+// After starting the bot, set up QR listener
+whatsappBot.startWhatsAppBot().then(sock => {
+  if (sock) whatsappBot.setupQrListener(sock);
+});
+
+// Start WhatsApp bot and run scheduled mock test at launch
+(async () => {
+  await whatsappBot.startWhatsAppBot();
+  whatsappBot.runScheduledMockTest();
+})();
+
+const PORT = process.env.PORT || 5050;
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
-}); 
+});
