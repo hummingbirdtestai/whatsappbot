@@ -12,20 +12,6 @@ export const MockTests: React.FC = () => {
   const [whatsappGroups, setWhatsappGroups] = useState<{ jid: string; name: string }[]>([]);
 
   React.useEffect(() => {
-    if (selectedTest) {
-      // Set initial values for edit fields
-      const dt = new Date(String(selectedTest.scheduledDate));
-      if (isNaN(dt.getTime())) {
-        setEditDate('');
-        setEditTime('');
-      } else {
-        setEditDate(String(dt.toISOString().slice(0, 10)));
-        setEditTime(String(dt.toISOString().slice(11, 16)));
-      }
-    }
-  }, [selectedTest]);
-
-  React.useEffect(() => {
     fetch('/api/whatsapp-groups')
       .then(res => res.json())
       .then(data => {
@@ -118,20 +104,35 @@ export const MockTests: React.FC = () => {
 
             <div className="flex items-center gap-2">
               <button
-                onClick={() => setSelectedTest(test)}
+                onClick={() => {
+                  // Normalize the date field for the modal
+                  setSelectedTest({
+                    ...test,
+                    scheduledDate: test.scheduledDate || (test as any).scheduled_at || ''
+                  });
+                }}
                 className="p-2 text-slate-400 hover:text-blue-400 transition-colors"
                 title="View Details"
               >
                 <Eye size={16} />
               </button>
-              
               {test.status === 'scheduled' && (
                 <button
-                  onClick={() => handleStatusChange(test.id, 'running')}
-                  className="p-2 text-slate-400 hover:text-emerald-400 transition-colors"
-                  title="Start Test"
+                  onClick={async () => {
+                    // Call backend to start the test
+                    await fetch(`/api/mock-tests/${test.id}`, {
+                      method: 'PUT',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ status: 'running', started_at: new Date().toISOString() })
+                    });
+                    // Optionally, reload tests or update state
+                    handleStatusChange(test.id, 'running');
+                  }}
+                  className="p-2 bg-emerald-500 text-white rounded-full hover:bg-emerald-600 transition-colors ml-2 flex items-center justify-center border border-emerald-700 shadow"
+                  title="Start Mock Test"
+                  style={{ minWidth: 32, minHeight: 32 }}
                 >
-                  <Play size={16} />
+                  <Play size={18} />
                 </button>
               )}
               
@@ -191,6 +192,9 @@ export const MockTests: React.FC = () => {
       )}
 
       {selectedTest && (
+        (() => { console.log('Selected Test Details:', selectedTest); return null; })()
+      )}
+      {selectedTest && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
           <div className="bg-slate-800 rounded-xl p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between mb-6">
@@ -242,7 +246,17 @@ export const MockTests: React.FC = () => {
                   ) : (
                     <div className="flex items-center gap-2">
                       <p className="text-white">{formatDate(selectedTest.scheduledDate)}</p>
-                      <button onClick={() => setEditing(true)} className="text-blue-400 hover:underline text-xs">Edit</button>
+                      <button
+                        onClick={() => {
+                          const dt = new Date(String(selectedTest.scheduledDate));
+                          setEditDate(!isNaN(dt.getTime()) ? dt.toISOString().slice(0, 10) : '');
+                          setEditTime(!isNaN(dt.getTime()) ? dt.toISOString().slice(11, 16) : '');
+                          setEditing(true);
+                        }}
+                        className="text-blue-400 hover:underline text-xs"
+                      >
+                        Edit
+                      </button>
                     </div>
                   )}
                 </div>

@@ -24,10 +24,33 @@ export const EditMCQModal: React.FC<EditMCQModalProps> = ({ mcq, onClose }) => {
     setFormData({ ...formData, options: newOptions });
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    updateMCQ(mcq.id, formData);
-    onClose();
+    try {
+      const response = await fetch(`/api/mcqs/${mcq.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          question: formData.question,
+          options: formData.options.reduce((acc, option, index) => {
+            acc[String.fromCharCode(65 + index)] = option;
+            return acc;
+          }, {}),
+          correctAnswer: String.fromCharCode(65 + formData.correctAnswer),
+          explanation: formData.explanation,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to update MCQ');
+      }
+
+      const updatedMCQ = await response.json();
+      updateMCQ(mcq.id, updatedMCQ);
+      onClose();
+    } catch (error: any) {
+      alert(`Error updating MCQ: ${error.message}`);
+    }
   };
 
   return (

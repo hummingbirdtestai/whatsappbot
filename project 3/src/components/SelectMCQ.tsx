@@ -10,7 +10,7 @@ interface SelectMCQProps {
 
 export const SelectMCQ: React.FC<SelectMCQProps> = ({ setActiveTab }) => {
   const { mcqs, createMockTest } = useMCQContext();
-  const [selectedMCQs, setSelectedMCQs] = useState<number[]>([]);
+  const [selectedMCQs, setSelectedMCQs] = useState<string[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('all');
   const [testName, setTestName] = useState('');
@@ -29,12 +29,13 @@ export const SelectMCQ: React.FC<SelectMCQProps> = ({ setActiveTab }) => {
       });
   }, []);
 
-  const categories = ['all', ...new Set(mcqs.map(mcq => mcq.category))];
+  const categories = ['all', ...Array.from(new Set(mcqs.map(mcq => mcq.category).filter(Boolean)))] as string[];
 
   const filteredMCQs = mcqs.filter(mcq => {
+    const category = mcq.category || '';
     const matchesSearch = mcq.question.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         mcq.category.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesCategory = selectedCategory === 'all' || mcq.category === selectedCategory;
+                         category.toLowerCase().includes(searchTerm.toLowerCase());
+    const matchesCategory = selectedCategory === 'all' || category === selectedCategory;
     return matchesSearch && matchesCategory;
   });
 
@@ -47,23 +48,33 @@ export const SelectMCQ: React.FC<SelectMCQProps> = ({ setActiveTab }) => {
     setCurrentPage(1);
   }, [searchTerm, selectedCategory]);
 
-  const handleSelectMCQ = (mcqId: number) => {
+  const handleSelectMCQ = (mcqId: string) => {
     if (selectedMCQs.includes(mcqId)) {
       setSelectedMCQs(selectedMCQs.filter(id => id !== mcqId));
     } else if (selectedMCQs.length < 300) {
       setSelectedMCQs([...selectedMCQs, mcqId]);
+    } else {
+      alert('You can select a maximum of 300 MCQs.');
     }
   };
 
   const handleSelectAll = () => {
-    if (selectedMCQs.length === paginatedMCQs.length) {
-      setSelectedMCQs([]);
+    const pageIds = paginatedMCQs.map(mcq => mcq.id);
+    const allSelected = pageIds.every(id => selectedMCQs.includes(id));
+    if (allSelected) {
+      setSelectedMCQs(selectedMCQs.filter(id => !pageIds.includes(id)));
     } else {
-      const newSelected = paginatedMCQs
-        .filter(mcq => !selectedMCQs.includes(mcq.id))
-        .slice(0, 300 - selectedMCQs.length)
-        .map(mcq => mcq.id);
-      setSelectedMCQs([...selectedMCQs, ...newSelected]);
+      // Only add up to 300 total
+      const notSelected = pageIds.filter(id => !selectedMCQs.includes(id));
+      const availableSlots = 300 - selectedMCQs.length;
+      if (availableSlots <= 0) {
+        alert('You can select a maximum of 300 MCQs.');
+        return;
+      }
+      setSelectedMCQs([...selectedMCQs, ...notSelected.slice(0, availableSlots)]);
+      if (notSelected.length > availableSlots) {
+        alert('Only the first ' + availableSlots + ' MCQs on this page were added to reach the 300 MCQ limit.');
+      }
     }
   };
 
@@ -75,7 +86,7 @@ export const SelectMCQ: React.FC<SelectMCQProps> = ({ setActiveTab }) => {
     const scheduledDateTime = new Date(`${startDate}T${startTime}`);
     createMockTest({
       name: testName,
-      mcqIds: selectedMCQs,
+      mcqIds: selectedMCQs.map(String),
       scheduledDate: scheduledDateTime.toISOString(),
       intervalMinutes: 3,
       whatsappGroups: selectedGroups, // Pass selected group JIDs
@@ -235,7 +246,6 @@ export const SelectMCQ: React.FC<SelectMCQProps> = ({ setActiveTab }) => {
                   className={`p-4 hover:bg-slate-700/50 cursor-pointer ${
                     selectedMCQs.includes(mcq.id) ? 'bg-emerald-600/10' : ''
                   }`}
-                  onClick={() => handleSelectMCQ(mcq.id)}
                 >
                   <div className="flex items-start gap-4">
                     <input
@@ -415,6 +425,8 @@ export const SelectMCQ: React.FC<SelectMCQProps> = ({ setActiveTab }) => {
               placeholder="Select WhatsApp Groups..."
               required
               styles={customStyles}
+              // Add key to each option rendered by react-select
+              getOptionValue={option => option.value}
             />
             <div className="text-xs text-slate-400 mt-1">You can select multiple groups.</div>
           </div>

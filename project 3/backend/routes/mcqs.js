@@ -8,9 +8,17 @@ module.exports = (supabase) => {
     const { category_id } = req.query;
     let query = supabase.from('mcqs').select('*');
     if (category_id) query = query.eq('category_id', category_id);
-    const { data, error } = await query;
-    if (error) return res.status(400).json({ error });
-    res.json(data);
+    try {
+      const { data, error } = await query;
+      if (error) {
+        console.error('Supabase MCQ fetch error:', error);
+        return res.status(400).json({ error: error.message || error });
+      }
+      res.json(data);
+    } catch (e) {
+      console.error('Unexpected error in /api/mcqs:', e);
+      res.status(500).json({ error: e.message || e.toString() });
+    }
   });
 
   // POST /api/mcqs
@@ -76,5 +84,23 @@ module.exports = (supabase) => {
     }
   });
 
+  // DELETE /api/mcqs/:id
+  router.delete('/:id', async (req, res) => {
+    const { id } = req.params;
+    try {
+      console.log('Attempting to delete MCQ with ID:', id);
+      const { error } = await supabase.from('mcqs').delete().eq('id', id);
+      if (error) {
+        console.error('Supabase delete error:', error);
+        return res.status(400).json({ error });
+      }
+      console.log('Successfully deleted MCQ with ID:', id);
+      res.status(204).send();
+    } catch (err) {
+      console.error('Internal server error:', err);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
   return router;
-}; 
+};
