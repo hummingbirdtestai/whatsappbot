@@ -1,0 +1,5 @@
+{
+  "watch": ["."],
+  "ignore": ["baileys_auth/*", "node_modules"],
+  "ext": "js,json"
+}
