@@ -4,11 +4,12 @@ const {
   default: makeWASocket,
   useMultiFileAuthState,
   fetchLatestBaileysVersion,
-  makeInMemoryStore,
 } = require("@whiskeysockets/baileys");
 const P = require("pino");
 const path = require("path");
 const { DateTime } = require("luxon");
+const { Boom } = require("@hapi/boom");
+const qrcode = require("qrcode");
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -18,62 +19,24 @@ const supabase = createClient(
 const INTERVAL_MINUTES = 3; // Interval between MCQs
 const AUTH_FOLDER = path.join(__dirname, "baileys_auth");
 
-let sock;
+let sock = undefined;
 let isConnecting = false;
 let connectPromise = null;
 let reconnectAttempts = 0;
-const MAX_RECONNECTS = 20; // Increased reconnect attempts
-
-// Periodic health check implementation
-setInterval(async () => {
-  if (!sock || !sock.user) {
-    console.log("Connection health check failed. Attempting reconnect...");
-    await startWhatsAppBot();
-  } else {
-    console.log("Connection health check passed.");
-  }
-}, 60000); // Check every 60 seconds
-
-// Enhanced reconnection logic and message queuing
+const MAX_RECONNECTS = 20;
 let messageQueue = [];
 
-async function processMessageQueue() {
-  while (messageQueue.length > 0) {
-    const { groupJid, text } = messageQueue.shift();
-    try {
-      await sendGroupMessage(groupJid, text);
-    } catch (err) {
-      console.error(
-        `Failed to process queued message for group ${groupJid}:`,
-        err
-      );
-      messageQueue.unshift({ groupJid, text }); // Requeue the message
-      break; // Stop processing further messages
-    }
-  }
-}
-
-async function ensureConnectionOpen() {
-  console.log("Ensuring connection is open...");
-  await startWhatsAppBot();
+// Health check: reconnect if needed
+setInterval(async () => {
   if (!sock || !sock.user) {
-    console.log("Waiting for connection to open...");
-    await new Promise((resolve) => {
-      const handler = ({ connection }) => {
-        console.log(`Connection update: ${connection}`);
-        if (connection === "open") {
-          console.log("Connection successfully opened.");
-          sock.ev.off("connection.update", handler);
-          resolve();
-        }
-      };
-      sock.ev.on("connection.update", handler);
-    });
-  } else {
-    console.log("Connection is already open.");
+    console.log(
+      "[HealthCheck] WhatsApp not connected. Attempting reconnect..."
+    );
+    await startWhatsAppBot();
   }
-}
+}, 60000);
 
+// Ensure only one connection attempt at a time
 async function startWhatsAppBot() {
   if (sock && sock.user) return sock;
   if (isConnecting) return connectPromise;
@@ -87,112 +50,119 @@ async function startWhatsAppBot() {
         auth: state,
         logger: P({ level: "silent" }),
         syncFullHistory: false,
+        // printQRInTerminal: true, // Deprecated, QR is handled in connection.update event
       });
       sock.ev.on("creds.update", saveCreds);
       sock.ev.on("connection.update", (update) => {
         const { connection, lastDisconnect, qr } = update;
         if (qr) {
-          const qrcode = require("qrcode-terminal");
-          qrcode.generate(qr, { small: true });
-          console.log("Scan the QR code above with WhatsApp to log in.");
+          require("qrcode-terminal").generate(qr, { small: true });
+          qrcode.toDataURL(qr).then((dataUrl) => {
+            global.latestQr = dataUrl;
+          });
         }
         if (connection === "close") {
-          console.log(
-            "Connection closed. Last disconnect reason:",
-            lastDisconnect?.error
-          );
+          console.log("[Connection] Closed. Reason:", lastDisconnect?.error);
           if (reconnectAttempts < MAX_RECONNECTS) {
             reconnectAttempts++;
             setTimeout(() => {
-              console.log(`Reconnecting... (attempt ${reconnectAttempts})`);
+              console.log(
+                `[Connection] Reconnecting... (attempt ${reconnectAttempts})`
+              );
               startWhatsAppBot();
-            }, 10000); // Increased delay to 10 seconds
+            }, 10000);
           } else {
-            console.error("Max reconnect attempts reached. Exiting.");
+            console.error(
+              "[Connection] Max reconnect attempts reached. Exiting."
+            );
             process.exit(1);
           }
         } else if (connection === "open") {
           reconnectAttempts = 0;
-          console.log("Connection opened successfully.");
-          processMessageQueue(); // Process queued messages when connection is restored
-        }
-      });
-      // Listen for group messages and log student responses
-      sock.ev.on("messages.upsert", async (m) => {
-        try {
-          const msg = m.messages && m.messages[0];
-          if (!msg || !msg.key || !msg.key.remoteJid) return;
-          const jid = msg.key.remoteJid;
-          if (jid.endsWith("@g.us") && msg.message?.conversation) {
-            // Log or process the student's response here
-            console.log(
-              `Response from ${
-                msg.pushName || msg.key.participant
-              } in ${jid}: ${msg.message.conversation}`
-            );
-          }
-        } catch (err) {
-          console.error("Error in messages.upsert handler:", err);
+          console.log("[Connection] Opened successfully.");
+          processMessageQueue();
         }
       });
       isConnecting = false;
       return sock;
     } catch (err) {
       isConnecting = false;
-      console.error("Error starting WhatsApp bot:", err);
+      console.error("[startWhatsAppBot] Error:", err);
     }
   })();
   return connectPromise;
 }
 
-// Forcefully destroy and recreate the socket on connection closed error
+// Ensure connection is open before sending messages
+async function ensureConnectionOpen() {
+  await startWhatsAppBot();
+  if (!sock || !sock.user) {
+    await new Promise((resolve) => {
+      const handler = ({ connection }) => {
+        if (connection === "open") {
+          sock.ev.off("connection.update", handler);
+          resolve();
+        }
+      };
+      sock.ev.on("connection.update", handler);
+    });
+  }
+}
+
+// Message queue processing
+async function processMessageQueue() {
+  while (messageQueue.length > 0) {
+    const { groupJid, text } = messageQueue.shift();
+    try {
+      await sendGroupMessage(groupJid, text);
+    } catch (err) {
+      console.error(`[Queue] Failed to send to ${groupJid}:`, err);
+      messageQueue.unshift({ groupJid, text });
+      break;
+    }
+  }
+}
+
+// Force reconnect
 async function forceReconnect() {
   try {
     if (sock && sock.ws && typeof sock.ws.close === "function") {
       sock.ws.close();
     }
   } catch (e) {
-    console.error("Error closing socket:", e);
+    console.error("[forceReconnect] Error closing socket:", e);
   }
   sock = undefined;
   isConnecting = false;
   connectPromise = null;
-  await new Promise((res) => setTimeout(res, 3000)); // Wait before reconnect
+  await new Promise((res) => setTimeout(res, 3000));
   await startWhatsAppBot();
 }
 
-// Send a message to a group with robust connection check and retry logic
+// Send message with retry/queue
 async function sendGroupMessage(groupJid, text, attempt = 1) {
   const MAX_SEND_ATTEMPTS = 5;
   await ensureConnectionOpen();
   if (!sock || !sock.user) {
-    console.error("WhatsApp bot not connected. Queuing message.");
     messageQueue.push({ groupJid, text });
     return;
   }
   try {
     await sock.sendMessage(groupJid, { text });
-    processMessageQueue(); // Process queued messages after successful send
+    processMessageQueue();
   } catch (err) {
-    console.error(
-      `Failed to send message to group ${groupJid} (attempt ${attempt}):`,
-      err
-    );
     if (
       err?.output?.statusCode === 428 ||
       (err.message && err.message.includes("Connection Closed")) ||
       (err.message && err.message.includes("not open"))
     ) {
       if (attempt < MAX_SEND_ATTEMPTS) {
-        console.log("Force reconnecting socket and retrying send...");
         await forceReconnect();
         return sendGroupMessage(groupJid, text, attempt + 1);
       } else {
-        console.error("Max send attempts reached. Queuing message.");
         messageQueue.push({ groupJid, text });
       }
     } else {
-      // Other errors, just queue
       messageQueue.push({ groupJid, text });
     }
   }
@@ -224,12 +194,15 @@ async function scheduleMockTestToGroup(mockTestId, groupJid) {
     .eq("id", mockTestId)
     .single();
   if (mockTestError || !mockTest) {
-    console.error("Mock test not found:", mockTestError);
+    console.error(
+      "[scheduleMockTestToGroup] Mock test not found:",
+      mockTestError
+    );
     return;
   }
   if (!mockTest.whatsapp_groups || mockTest.whatsapp_groups.length === 0) {
     console.warn(
-      `No WhatsApp groups assigned for mock test ${mockTestId}. Skipping.`
+      `[scheduleMockTestToGroup] No WhatsApp groups for test ${mockTestId}. Skipping.`
     );
     return;
   }
@@ -240,7 +213,10 @@ async function scheduleMockTestToGroup(mockTestId, groupJid) {
     .eq("id", mockTest.quiz_funnel_id)
     .single();
   if (funnelError || !funnel) {
-    console.error("Quiz funnel not found:", funnelError);
+    console.error(
+      "[scheduleMockTestToGroup] Quiz funnel not found:",
+      funnelError
+    );
     return;
   }
   const { data: funnelMCQs, error: funnelMCQsError } = await supabase
@@ -249,7 +225,10 @@ async function scheduleMockTestToGroup(mockTestId, groupJid) {
     .eq("quiz_funnel_id", funnel.id)
     .order("order_index");
   if (funnelMCQsError || !funnelMCQs) {
-    console.error("Quiz funnel MCQs not found:", funnelMCQsError);
+    console.error(
+      "[scheduleMockTestToGroup] Quiz funnel MCQs not found:",
+      funnelMCQsError
+    );
     return;
   }
   const mcqIds = funnelMCQs.map((fm) => fm.mcq_id);
@@ -258,7 +237,7 @@ async function scheduleMockTestToGroup(mockTestId, groupJid) {
     .select("*")
     .in("id", mcqIds);
   if (mcqsError || !mcqs) {
-    console.error("MCQs not found:", mcqsError);
+    console.error("[scheduleMockTestToGroup] MCQs not found:", mcqsError);
     return;
   }
   // Set test status to running
@@ -291,7 +270,6 @@ async function scheduleMockTestToGroup(mockTestId, groupJid) {
       const msgObj = m.messages && m.messages[0];
       if (!msgObj || !msgObj.key || !msgObj.key.remoteJid) return;
       const jid = msgObj.key.remoteJid;
-      // Strictly filter: only accept answers from the correct group
       if (jid !== groupJid) return;
       let userJid = msgObj.key.participant || msgObj.pushName;
       let userName = msgObj.pushName || userJid;
@@ -302,10 +280,9 @@ async function scheduleMockTestToGroup(mockTestId, groupJid) {
       ) {
         userJid = userJid.replace("@s.whatsapp.net", "");
       }
-      // Only accept first valid answer (a/b/c/d, case-insensitive) per user
       const text = msgObj.message?.conversation?.trim();
       if (!userJid || !text || !isValidAnswer(text)) return;
-      if (answers[userJid]) return; // Ignore subsequent answers
+      if (answers[userJid]) return;
       answers[userJid] = text.toLowerCase();
       // Store submission in Supabase, now with user_name
       await supabase.from("mock_test_submissions").insert({
@@ -318,7 +295,6 @@ async function scheduleMockTestToGroup(mockTestId, groupJid) {
       });
     };
     sock.ev.on("messages.upsert", answerListener);
-    // Wait exactly 3 minutes
     await new Promise((res) => setTimeout(res, INTERVAL_MINUTES * 60 * 1000));
     sock.ev.off("messages.upsert", answerListener);
 
@@ -331,28 +307,31 @@ async function scheduleMockTestToGroup(mockTestId, groupJid) {
         .eq("mock_test_id", mockTestId)
         .eq("mcq_id", mcq.id);
       if (result.error) {
-        console.error("Error fetching submissions:", result.error);
+        console.error(
+          "[scheduleMockTestToGroup] Error fetching submissions:",
+          result.error
+        );
       } else if (Array.isArray(result.data)) {
         submissions = result.data;
       } else {
         submissions = [];
       }
     } catch (err) {
-      console.error("Exception fetching submissions:", err);
+      console.error(
+        "[scheduleMockTestToGroup] Exception fetching submissions:",
+        err
+      );
       submissions = [];
     }
     // Calculate and update cumulative scores
-    const scores = {};
     for (const sub of submissions) {
-      scores[sub.user_jid] = calcScore(sub.answer, mcq.answer);
-      // Update cumulative score in mock_test_scores
       const { data: prev } = await supabase
         .from("mock_test_scores")
         .select("*")
         .eq("mock_test_id", mockTestId)
         .eq("user_jid", sub.user_jid)
         .single();
-      const newScore = (prev?.score || 0) + scores[sub.user_jid];
+      const newScore = (prev?.score || 0) + calcScore(sub.answer, mcq.answer);
       if (prev) {
         await supabase
           .from("mock_test_scores")
@@ -367,14 +346,12 @@ async function scheduleMockTestToGroup(mockTestId, groupJid) {
         });
       }
     }
-    // 4️⃣ Post leaderboard (descending order) and explanation
-    // Fetch leaderboard and also latest user names for each user_jid
+    // 4️⃣ Post leaderboard and explanation
     const { data: leaderboard } = await supabase
       .from("mock_test_scores")
       .select("*")
       .eq("mock_test_id", mockTestId)
       .order("score", { ascending: false });
-    // Fetch latest user_name for each user_jid from submissions
     let nameMap = {};
     if (leaderboard && leaderboard.length > 0) {
       const userJids = leaderboard.map((l) => l.user_jid);
@@ -383,13 +360,12 @@ async function scheduleMockTestToGroup(mockTestId, groupJid) {
         .select("user_jid, user_name, submitted_at")
         .in("user_jid", userJids)
         .eq("mock_test_id", mockTestId);
-      // For each user_jid, pick the latest submission's user_name
       if (Array.isArray(nameRows)) {
         nameRows.forEach((row) => {
           if (
             !nameMap[row.user_jid] ||
             new Date(row.submitted_at) >
-              new Date(nameMap[row.user_jid].submitted_at)
+              new Date(nameMap[row.user_jid]?.submitted_at)
           ) {
             nameMap[row.user_jid] = {
               user_name: row.user_name,
@@ -398,37 +374,18 @@ async function scheduleMockTestToGroup(mockTestId, groupJid) {
           }
         });
       }
-      // ✅ Console log the leaderboard with names
-      //   console.log("📊 Leaderboard after Q" + (idx + 1));
-      //   leaderboard.forEach((entry, i) => {
-      //     const name = nameMap[entry.user_jid]?.user_name || entry.user_jid;
-      //     console.log(
-      //       `${i + 1}. ${name} (${entry.user_jid}) - Score: ${entry.score}`
-      //     );
-      //   });
-      console.log(`📊 Leaderboard Table after Q${idx + 1}`);
-      const tableData = leaderboard.map((entry, i) => ({
-        Rank: i + 1,
-        Name: nameMap[entry.user_jid]?.user_name || entry.user_jid,
-        JID: entry.user_jid,
-        Score: entry.score,
-      }));
-      console.table(tableData);
     }
-    // Use WhatsApp-friendly leaderboard message with names
     let leaderboardMsg = generateLeaderboardMessage(
       leaderboard || [],
       idx + 1,
       nameMap
     );
     await sendGroupMessage(groupJid, leaderboardMsg);
-    // Post explanation for current MCQ
     let explanationMsg = `*Explanation for Q${idx + 1}:*\n`;
     explanationMsg += mcq.explanation
       ? mcq.explanation
       : "No explanation provided.";
     await sendGroupMessage(groupJid, explanationMsg);
-    // 5️⃣ Proceed to next MCQ automatically (loop continues)
   }
   // Mark test as complete
   await sendGroupMessage(groupJid, "✅ Mock test complete!");
@@ -444,7 +401,6 @@ async function scheduleMockTestToGroup(mockTestId, groupJid) {
 
 // WhatsApp-friendly leaderboard generator
 function generateLeaderboardMessage(leaderboard, questionNumber, nameMap = {}) {
-  // Sort by score descending
   const sorted = [...leaderboard].sort((a, b) => b.score - a.score);
   const medals = ["🥇", "🥈", "🥉"];
   let msg = `*Leaderboard after Q${questionNumber}*\n`;
@@ -460,46 +416,14 @@ function generateLeaderboardMessage(leaderboard, questionNumber, nameMap = {}) {
   return msg.trim();
 }
 
-// List all group JIDs the bot is a member of
-async function listGroupJids() {
-  console.log("Fetching group JIDs...");
-  if (!sock) {
-    console.log("Socket not initialized. Starting WhatsApp bot...");
-    await startWhatsAppBot();
-  }
-  if (!sock.user) {
-    console.log("Waiting for connection to open before fetching groups...");
-    await new Promise((resolve) => {
-      const handler = ({ connection }) => {
-        console.log(`Connection update during group fetch: ${connection}`);
-        if (connection === "open") {
-          console.log("Connection successfully opened for group fetch.");
-          sock.ev.off("connection.update", handler);
-          resolve();
-        }
-      };
-      sock.ev.on("connection.update", handler);
-    });
-  }
-  try {
-    const chats = await sock.groupFetchAllParticipating();
-    Object.values(chats).forEach((group) => {
-      console.log(`Group: ${group.subject} | JID: ${group.id}`);
-    });
-  } catch (err) {
-    console.error("Error fetching group JIDs:", err);
-  }
-}
-
-// List all group JIDs and names the bot is a member of (for API)
+// List all group JIDs and names
 async function listGroupJidsWithNames() {
   await startWhatsAppBot();
-  // Wait for connection
   if (!sock.user) {
     await new Promise((resolve) => {
       const handler = ({ connection }) => {
         if (connection === "open") {
-          sock.ev.off("connection.update", handler); // Remove handler after first call
+          sock.ev.off("connection.update", handler);
           resolve();
         }
       };
@@ -513,20 +437,16 @@ async function listGroupJidsWithNames() {
   }));
 }
 
-// Minimal test function to send a message and log responses
+// Minimal test function
 async function testSendAndReceive(groupJid, text) {
   await sendGroupMessage(groupJid, text);
   console.log("Waiting for responses... (check logs for incoming messages)");
 }
 
-// Expose a getter for the current socket and QR code
 function getSocket() {
   return sock;
 }
 
-// Listen for QR code updates and store latest as data URL
-const qrcode = require("qrcode");
-global.latestQr = "";
 function setupQrListener(sock) {
   sock.ev.on("connection.update", async (update) => {
     if (update.qr) {
@@ -535,34 +455,7 @@ function setupQrListener(sock) {
   });
 }
 
-// CLI usage for listing groups and test send
-if (require.main === module) {
-  (async () => {
-    const [, , arg1, arg2, ...rest] = process.argv;
-    if (arg1 === "list-groups") {
-      await startWhatsAppBot();
-      await listGroupJids();
-      process.exit(0);
-    } else if (arg1 === "test-send" && arg2 && rest.length > 0) {
-      const message = rest.join(" ");
-      await testSendAndReceive(arg2, message);
-      process.exit(0);
-    } else if (arg1 && arg2) {
-      console.log(`Scheduling mock test ${arg1} to group ${arg2}`);
-      await startWhatsAppBot();
-      scheduleMockTestToGroup(arg1, arg2);
-    } else {
-      console.log("To schedule: node whatsappBot.js <mockTestId> <groupJid>");
-      console.log("To list groups: node whatsappBot.js list-groups");
-      console.log(
-        "To test send: node whatsappBot.js test-send <groupJid> <message>"
-      );
-    }
-  })();
-}
-
 async function runScheduledMockTest() {
-  // 1. Find the next published mock test with start_date + start_time >= now
   const now = DateTime.now().toUTC();
   const { data: tests, error } = await supabase
     .from("mock_tests")
@@ -573,7 +466,6 @@ async function runScheduledMockTest() {
     console.log("No upcoming published mock tests found.");
     return;
   }
-  // Find the test with the earliest start time >= now
   let nextTest = null;
   let nextStart = null;
   for (const test of tests) {
@@ -600,11 +492,46 @@ async function runScheduledMockTest() {
   if (waitMs > 0) {
     await new Promise((res) => setTimeout(res, waitMs));
   }
-  // Start the quiz for all assigned WhatsApp groups
   for (const groupJid of nextTest.whatsapp_groups || []) {
     await scheduleMockTestToGroup(nextTest.id, groupJid);
   }
 }
+
+// [DEV TEST] Utility to simulate 300 MCQs and verify scoring/leaderboard logic
+// Not exported, for developer confidence only
+async function _devTestSimulate300MCQs() {
+  const mockTestId = "test-mock-id";
+  const groupJid = "test-group@g.us";
+  // Simulate 300 MCQs
+  let scores = {};
+  for (let idx = 0; idx < 300; idx++) {
+    // Simulate answers from 3 users
+    const users = ["user1", "user2", "user3"];
+    const correctAnswer = ["a", "b", "c", "d"][idx % 4];
+    for (const user of users) {
+      // Each user answers randomly, user1 always correct
+      const answer =
+        user === "user1" ? correctAnswer : ["a", "b", "c", "d"][(idx + 1) % 4];
+      const score = answer === correctAnswer ? 4 : -1;
+      scores[user] = (scores[user] || 0) + score;
+    }
+    // Simulate leaderboard message
+    const leaderboard = Object.entries(scores).map(([user_jid, score]) => ({
+      user_jid,
+      score,
+    }));
+    leaderboard.sort((a, b) => b.score - a.score);
+    // Simulate explanation
+    const explanation = `Explanation for Q${idx + 1}`;
+    // Log leaderboard and explanation
+    console.log(`Leaderboard after Q${idx + 1}:`, leaderboard);
+    console.log(explanation);
+  }
+  // Final scores
+  console.log("Final scores after 300 MCQs:", scores);
+}
+// To run: uncomment the next line
+// _devTestSimulate300MCQs();
 
 module.exports = {
   startWhatsAppBot,
