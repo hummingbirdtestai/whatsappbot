@@ -1,0 +1,4 @@
+{
+  "ignore": ["baileys_auth/*", "auth/*"]
+}
+    

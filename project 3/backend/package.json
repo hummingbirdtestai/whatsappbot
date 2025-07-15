@@ -6,8 +6,8 @@
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "start": "node index.js",
-    "dev": "node index.js",
-    "whatsapp-bot": "node whatsappBot.js"
+    "dev": "nodemon index.js",
+    "whatsapp-bot": "nodemon whatsappBot.js"
   },
   "keywords": [],
   "author": "",
