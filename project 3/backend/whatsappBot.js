@@ -1,9 +1,14 @@
-require('dotenv').config({ path: __dirname + '/.env' });
-const { createClient } = require('@supabase/supabase-js');
-const { default: makeWASocket, useMultiFileAuthState, fetchLatestBaileysVersion, makeInMemoryStore } = require('@whiskeysockets/baileys');
-const P = require('pino');
-const path = require('path');
-const { DateTime } = require('luxon');
+require("dotenv").config({ path: __dirname + "/.env" });
+const { createClient } = require("@supabase/supabase-js");
+const {
+  default: makeWASocket,
+  useMultiFileAuthState,
+  fetchLatestBaileysVersion,
+  makeInMemoryStore,
+} = require("@whiskeysockets/baileys");
+const P = require("pino");
+const path = require("path");
+const { DateTime } = require("luxon");
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -11,7 +16,7 @@ const supabase = createClient(
 );
 
 const INTERVAL_MINUTES = 3; // Interval between MCQs
-const AUTH_FOLDER = path.join(__dirname, 'baileys_auth');
+const AUTH_FOLDER = path.join(__dirname, "baileys_auth");
 
 let sock;
 let isConnecting = false;
@@ -22,10 +27,10 @@ const MAX_RECONNECTS = 20; // Increased reconnect attempts
 // Periodic health check implementation
 setInterval(async () => {
   if (!sock || !sock.user) {
-    console.log('Connection health check failed. Attempting reconnect...');
+    console.log("Connection health check failed. Attempting reconnect...");
     await startWhatsAppBot();
   } else {
-    console.log('Connection health check passed.');
+    console.log("Connection health check passed.");
   }
 }, 60000); // Check every 60 seconds
 
@@ -38,7 +43,10 @@ async function processMessageQueue() {
     try {
       await sendGroupMessage(groupJid, text);
     } catch (err) {
-      console.error(`Failed to process queued message for group ${groupJid}:`, err);
+      console.error(
+        `Failed to process queued message for group ${groupJid}:`,
+        err
+      );
       messageQueue.unshift({ groupJid, text }); // Requeue the message
       break; // Stop processing further messages
     }
@@ -46,23 +54,23 @@ async function processMessageQueue() {
 }
 
 async function ensureConnectionOpen() {
-  console.log('Ensuring connection is open...');
+  console.log("Ensuring connection is open...");
   await startWhatsAppBot();
   if (!sock || !sock.user) {
-    console.log('Waiting for connection to open...');
+    console.log("Waiting for connection to open...");
     await new Promise((resolve) => {
       const handler = ({ connection }) => {
         console.log(`Connection update: ${connection}`);
-        if (connection === 'open') {
-          console.log('Connection successfully opened.');
-          sock.ev.off('connection.update', handler);
+        if (connection === "open") {
+          console.log("Connection successfully opened.");
+          sock.ev.off("connection.update", handler);
           resolve();
         }
       };
-      sock.ev.on('connection.update', handler);
+      sock.ev.on("connection.update", handler);
     });
   } else {
-    console.log('Connection is already open.');
+    console.log("Connection is already open.");
   }
 }
 
@@ -77,19 +85,22 @@ async function startWhatsAppBot() {
       sock = makeWASocket({
         version,
         auth: state,
-        logger: P({ level: 'silent' }),
+        logger: P({ level: "silent" }),
         syncFullHistory: false,
       });
-      sock.ev.on('creds.update', saveCreds);
-      sock.ev.on('connection.update', (update) => {
+      sock.ev.on("creds.update", saveCreds);
+      sock.ev.on("connection.update", (update) => {
         const { connection, lastDisconnect, qr } = update;
         if (qr) {
-          const qrcode = require('qrcode-terminal');
+          const qrcode = require("qrcode-terminal");
           qrcode.generate(qr, { small: true });
-          console.log('Scan the QR code above with WhatsApp to log in.');
+          console.log("Scan the QR code above with WhatsApp to log in.");
         }
-        if (connection === 'close') {
-          console.log('Connection closed. Last disconnect reason:', lastDisconnect?.error);
+        if (connection === "close") {
+          console.log(
+            "Connection closed. Last disconnect reason:",
+            lastDisconnect?.error
+          );
           if (reconnectAttempts < MAX_RECONNECTS) {
             reconnectAttempts++;
             setTimeout(() => {
@@ -97,34 +108,38 @@ async function startWhatsAppBot() {
               startWhatsAppBot();
             }, 10000); // Increased delay to 10 seconds
           } else {
-            console.error('Max reconnect attempts reached. Exiting.');
+            console.error("Max reconnect attempts reached. Exiting.");
             process.exit(1);
           }
-        } else if (connection === 'open') {
+        } else if (connection === "open") {
           reconnectAttempts = 0;
-          console.log('Connection opened successfully.');
+          console.log("Connection opened successfully.");
           processMessageQueue(); // Process queued messages when connection is restored
         }
       });
       // Listen for group messages and log student responses
-      sock.ev.on('messages.upsert', async (m) => {
+      sock.ev.on("messages.upsert", async (m) => {
         try {
           const msg = m.messages && m.messages[0];
           if (!msg || !msg.key || !msg.key.remoteJid) return;
           const jid = msg.key.remoteJid;
-          if (jid.endsWith('@g.us') && msg.message?.conversation) {
+          if (jid.endsWith("@g.us") && msg.message?.conversation) {
             // Log or process the student's response here
-            console.log(`Response from ${msg.pushName || msg.key.participant} in ${jid}: ${msg.message.conversation}`);
+            console.log(
+              `Response from ${
+                msg.pushName || msg.key.participant
+              } in ${jid}: ${msg.message.conversation}`
+            );
           }
         } catch (err) {
-          console.error('Error in messages.upsert handler:', err);
+          console.error("Error in messages.upsert handler:", err);
         }
       });
       isConnecting = false;
       return sock;
     } catch (err) {
       isConnecting = false;
-      console.error('Error starting WhatsApp bot:', err);
+      console.error("Error starting WhatsApp bot:", err);
     }
   })();
   return connectPromise;
@@ -133,16 +148,16 @@ async function startWhatsAppBot() {
 // Forcefully destroy and recreate the socket on connection closed error
 async function forceReconnect() {
   try {
-    if (sock && sock.ws && typeof sock.ws.close === 'function') {
+    if (sock && sock.ws && typeof sock.ws.close === "function") {
       sock.ws.close();
     }
   } catch (e) {
-    console.error('Error closing socket:', e);
+    console.error("Error closing socket:", e);
   }
   sock = undefined;
   isConnecting = false;
   connectPromise = null;
-  await new Promise(res => setTimeout(res, 3000)); // Wait before reconnect
+  await new Promise((res) => setTimeout(res, 3000)); // Wait before reconnect
   await startWhatsAppBot();
 }
 
@@ -151,7 +166,7 @@ async function sendGroupMessage(groupJid, text, attempt = 1) {
   const MAX_SEND_ATTEMPTS = 5;
   await ensureConnectionOpen();
   if (!sock || !sock.user) {
-    console.error('WhatsApp bot not connected. Queuing message.');
+    console.error("WhatsApp bot not connected. Queuing message.");
     messageQueue.push({ groupJid, text });
     return;
   }
@@ -159,18 +174,21 @@ async function sendGroupMessage(groupJid, text, attempt = 1) {
     await sock.sendMessage(groupJid, { text });
     processMessageQueue(); // Process queued messages after successful send
   } catch (err) {
-    console.error(`Failed to send message to group ${groupJid} (attempt ${attempt}):`, err);
+    console.error(
+      `Failed to send message to group ${groupJid} (attempt ${attempt}):`,
+      err
+    );
     if (
       err?.output?.statusCode === 428 ||
-      (err.message && err.message.includes('Connection Closed')) ||
-      (err.message && err.message.includes('not open'))
+      (err.message && err.message.includes("Connection Closed")) ||
+      (err.message && err.message.includes("not open"))
     ) {
       if (attempt < MAX_SEND_ATTEMPTS) {
-        console.log('Force reconnecting socket and retrying send...');
+        console.log("Force reconnecting socket and retrying send...");
         await forceReconnect();
         return sendGroupMessage(groupJid, text, attempt + 1);
       } else {
-        console.error('Max send attempts reached. Queuing message.');
+        console.error("Max send attempts reached. Queuing message.");
         messageQueue.push({ groupJid, text });
       }
     } else {
@@ -182,7 +200,7 @@ async function sendGroupMessage(groupJid, text, attempt = 1) {
 
 // Helper: Valid answer check
 function isValidAnswer(msg) {
-  return ['a', 'b', 'c', 'd'].includes(msg.trim().toLowerCase());
+  return ["a", "b", "c", "d"].includes(msg.trim().toLowerCase());
 }
 
 // Helper: Score calculation
@@ -200,43 +218,72 @@ function calcScore(userAnswer, correctAnswer) {
  */
 async function scheduleMockTestToGroup(mockTestId, groupJid) {
   // Fetch mock test config
-  const { data: mockTest, error: mockTestError } = await supabase.from('mock_tests').select('*').eq('id', mockTestId).single();
+  const { data: mockTest, error: mockTestError } = await supabase
+    .from("mock_tests")
+    .select("*")
+    .eq("id", mockTestId)
+    .single();
   if (mockTestError || !mockTest) {
-    console.error('Mock test not found:', mockTestError);
+    console.error("Mock test not found:", mockTestError);
     return;
   }
   if (!mockTest.whatsapp_groups || mockTest.whatsapp_groups.length === 0) {
-    console.warn(`No WhatsApp groups assigned for mock test ${mockTestId}. Skipping.`);
+    console.warn(
+      `No WhatsApp groups assigned for mock test ${mockTestId}. Skipping.`
+    );
     return;
   }
   // Fetch quiz funnel and MCQ order
-  const { data: funnel, error: funnelError } = await supabase.from('quiz_funnels').select('*').eq('id', mockTest.quiz_funnel_id).single();
+  const { data: funnel, error: funnelError } = await supabase
+    .from("quiz_funnels")
+    .select("*")
+    .eq("id", mockTest.quiz_funnel_id)
+    .single();
   if (funnelError || !funnel) {
-    console.error('Quiz funnel not found:', funnelError);
+    console.error("Quiz funnel not found:", funnelError);
     return;
   }
-  const { data: funnelMCQs, error: funnelMCQsError } = await supabase.from('quiz_funnel_mcqs').select('*').eq('quiz_funnel_id', funnel.id).order('order_index');
+  const { data: funnelMCQs, error: funnelMCQsError } = await supabase
+    .from("quiz_funnel_mcqs")
+    .select("*")
+    .eq("quiz_funnel_id", funnel.id)
+    .order("order_index");
   if (funnelMCQsError || !funnelMCQs) {
-    console.error('Quiz funnel MCQs not found:', funnelMCQsError);
+    console.error("Quiz funnel MCQs not found:", funnelMCQsError);
     return;
   }
-  const mcqIds = funnelMCQs.map(fm => fm.mcq_id);
-  const { data: mcqs, error: mcqsError } = await supabase.from('mcqs').select('*').in('id', mcqIds);
+  const mcqIds = funnelMCQs.map((fm) => fm.mcq_id);
+  const { data: mcqs, error: mcqsError } = await supabase
+    .from("mcqs")
+    .select("*")
+    .in("id", mcqIds);
   if (mcqsError || !mcqs) {
-    console.error('MCQs not found:', mcqsError);
+    console.error("MCQs not found:", mcqsError);
     return;
   }
   // Set test status to running
-  await supabase.from('mock_tests').update({ status: 'running', started_at: new Date().toISOString(), current_mcq: 0 }).eq('id', mockTestId);
+  await supabase
+    .from("mock_tests")
+    .update({
+      status: "running",
+      started_at: new Date().toISOString(),
+      current_mcq: 0,
+    })
+    .eq("id", mockTestId);
 
   // Step through each MCQ in order
   for (let idx = 0; idx < mcqs.length; idx++) {
     const mcq = mcqs[idx];
     // 1️⃣ Post MCQ and start timer
-    const optionsText = Object.entries(mcq.options).map(([key, val]) => `${key}. ${val}`).join('\n');
+    const optionsText = Object.entries(mcq.options)
+      .map(([key, val]) => `${key}. ${val}`)
+      .join("\n");
     const msg = `*Q${idx + 1}:* ${mcq.question}\n${optionsText}`;
     await sendGroupMessage(groupJid, msg);
-    await supabase.from('mock_tests').update({ current_mcq: idx + 1 }).eq('id', mockTestId);
+    await supabase
+      .from("mock_tests")
+      .update({ current_mcq: idx + 1 })
+      .eq("id", mockTestId);
 
     // 2️⃣ During 3-min window, record only first valid answer per user
     const answers = {}; // userJid -> answer
@@ -248,8 +295,12 @@ async function scheduleMockTestToGroup(mockTestId, groupJid) {
       if (jid !== groupJid) return;
       let userJid = msgObj.key.participant || msgObj.pushName;
       let userName = msgObj.pushName || userJid;
-      if (userJid && typeof userJid === 'string' && userJid.endsWith('@s.whatsapp.net')) {
-        userJid = userJid.replace('@s.whatsapp.net', '');
+      if (
+        userJid &&
+        typeof userJid === "string" &&
+        userJid.endsWith("@s.whatsapp.net")
+      ) {
+        userJid = userJid.replace("@s.whatsapp.net", "");
       }
       // Only accept first valid answer (a/b/c/d, case-insensitive) per user
       const text = msgObj.message?.conversation?.trim();
@@ -257,7 +308,7 @@ async function scheduleMockTestToGroup(mockTestId, groupJid) {
       if (answers[userJid]) return; // Ignore subsequent answers
       answers[userJid] = text.toLowerCase();
       // Store submission in Supabase, now with user_name
-      await supabase.from('mock_test_submissions').insert({
+      await supabase.from("mock_test_submissions").insert({
         mock_test_id: mockTestId,
         mcq_id: mcq.id,
         user_jid: userJid,
@@ -266,27 +317,28 @@ async function scheduleMockTestToGroup(mockTestId, groupJid) {
         submitted_at: new Date().toISOString(),
       });
     };
-    sock.ev.on('messages.upsert', answerListener);
+    sock.ev.on("messages.upsert", answerListener);
     // Wait exactly 3 minutes
-    await new Promise(res => setTimeout(res, INTERVAL_MINUTES * 60 * 1000));
-    sock.ev.off('messages.upsert', answerListener);
+    await new Promise((res) => setTimeout(res, INTERVAL_MINUTES * 60 * 1000));
+    sock.ev.off("messages.upsert", answerListener);
 
     // 3️⃣ At end of timer, evaluate answers and update scores
     let submissions = [];
     try {
-      const result = await supabase.from('mock_test_submissions')
-        .select('*')
-        .eq('mock_test_id', mockTestId)
-        .eq('mcq_id', mcq.id);
+      const result = await supabase
+        .from("mock_test_submissions")
+        .select("*")
+        .eq("mock_test_id", mockTestId)
+        .eq("mcq_id", mcq.id);
       if (result.error) {
-        console.error('Error fetching submissions:', result.error);
+        console.error("Error fetching submissions:", result.error);
       } else if (Array.isArray(result.data)) {
         submissions = result.data;
       } else {
         submissions = [];
       }
     } catch (err) {
-      console.error('Exception fetching submissions:', err);
+      console.error("Exception fetching submissions:", err);
       submissions = [];
     }
     // Calculate and update cumulative scores
@@ -294,66 +346,113 @@ async function scheduleMockTestToGroup(mockTestId, groupJid) {
     for (const sub of submissions) {
       scores[sub.user_jid] = calcScore(sub.answer, mcq.answer);
       // Update cumulative score in mock_test_scores
-      const { data: prev } = await supabase.from('mock_test_scores')
-        .select('*')
-        .eq('mock_test_id', mockTestId)
-        .eq('user_jid', sub.user_jid)
+      const { data: prev } = await supabase
+        .from("mock_test_scores")
+        .select("*")
+        .eq("mock_test_id", mockTestId)
+        .eq("user_jid", sub.user_jid)
         .single();
       const newScore = (prev?.score || 0) + scores[sub.user_jid];
       if (prev) {
-        await supabase.from('mock_test_scores').update({ score: newScore }).eq('mock_test_id', mockTestId).eq('user_jid', sub.user_jid);
+        await supabase
+          .from("mock_test_scores")
+          .update({ score: newScore })
+          .eq("mock_test_id", mockTestId)
+          .eq("user_jid", sub.user_jid);
       } else {
-        await supabase.from('mock_test_scores').insert({ mock_test_id: mockTestId, user_jid: sub.user_jid, score: newScore });
+        await supabase.from("mock_test_scores").insert({
+          mock_test_id: mockTestId,
+          user_jid: sub.user_jid,
+          score: newScore,
+        });
       }
     }
     // 4️⃣ Post leaderboard (descending order) and explanation
     // Fetch leaderboard and also latest user names for each user_jid
-    const { data: leaderboard } = await supabase.from('mock_test_scores')
-      .select('*')
-      .eq('mock_test_id', mockTestId)
-      .order('score', { ascending: false });
+    const { data: leaderboard } = await supabase
+      .from("mock_test_scores")
+      .select("*")
+      .eq("mock_test_id", mockTestId)
+      .order("score", { ascending: false });
     // Fetch latest user_name for each user_jid from submissions
     let nameMap = {};
     if (leaderboard && leaderboard.length > 0) {
-      const userJids = leaderboard.map(l => l.user_jid);
-      const { data: nameRows } = await supabase.from('mock_test_submissions')
-        .select('user_jid, user_name, submitted_at')
-        .in('user_jid', userJids)
-        .eq('mock_test_id', mockTestId);
+      const userJids = leaderboard.map((l) => l.user_jid);
+      const { data: nameRows } = await supabase
+        .from("mock_test_submissions")
+        .select("user_jid, user_name, submitted_at")
+        .in("user_jid", userJids)
+        .eq("mock_test_id", mockTestId);
       // For each user_jid, pick the latest submission's user_name
       if (Array.isArray(nameRows)) {
-        nameRows.forEach(row => {
-          if (!nameMap[row.user_jid] || new Date(row.submitted_at) > new Date(nameMap[row.user_jid].submitted_at)) {
-            nameMap[row.user_jid] = { user_name: row.user_name, submitted_at: row.submitted_at };
+        nameRows.forEach((row) => {
+          if (
+            !nameMap[row.user_jid] ||
+            new Date(row.submitted_at) >
+              new Date(nameMap[row.user_jid].submitted_at)
+          ) {
+            nameMap[row.user_jid] = {
+              user_name: row.user_name,
+              submitted_at: row.submitted_at,
+            };
           }
         });
       }
+      // ✅ Console log the leaderboard with names
+      //   console.log("📊 Leaderboard after Q" + (idx + 1));
+      //   leaderboard.forEach((entry, i) => {
+      //     const name = nameMap[entry.user_jid]?.user_name || entry.user_jid;
+      //     console.log(
+      //       `${i + 1}. ${name} (${entry.user_jid}) - Score: ${entry.score}`
+      //     );
+      //   });
+      console.log(`📊 Leaderboard Table after Q${idx + 1}`);
+      const tableData = leaderboard.map((entry, i) => ({
+        Rank: i + 1,
+        Name: nameMap[entry.user_jid]?.user_name || entry.user_jid,
+        JID: entry.user_jid,
+        Score: entry.score,
+      }));
+      console.table(tableData);
     }
     // Use WhatsApp-friendly leaderboard message with names
-    let leaderboardMsg = generateLeaderboardMessage(leaderboard || [], idx + 1, nameMap);
+    let leaderboardMsg = generateLeaderboardMessage(
+      leaderboard || [],
+      idx + 1,
+      nameMap
+    );
     await sendGroupMessage(groupJid, leaderboardMsg);
     // Post explanation for current MCQ
     let explanationMsg = `*Explanation for Q${idx + 1}:*\n`;
-    explanationMsg += mcq.explanation ? mcq.explanation : 'No explanation provided.';
+    explanationMsg += mcq.explanation
+      ? mcq.explanation
+      : "No explanation provided.";
     await sendGroupMessage(groupJid, explanationMsg);
     // 5️⃣ Proceed to next MCQ automatically (loop continues)
   }
   // Mark test as complete
-  await sendGroupMessage(groupJid, '✅ Mock test complete!');
-  await supabase.from('mock_tests').update({ status: 'completed', completed_at: new Date().toISOString(), current_mcq: mcqs.length }).eq('id', mockTestId);
+  await sendGroupMessage(groupJid, "✅ Mock test complete!");
+  await supabase
+    .from("mock_tests")
+    .update({
+      status: "completed",
+      completed_at: new Date().toISOString(),
+      current_mcq: mcqs.length,
+    })
+    .eq("id", mockTestId);
 }
 
 // WhatsApp-friendly leaderboard generator
 function generateLeaderboardMessage(leaderboard, questionNumber, nameMap = {}) {
   // Sort by score descending
   const sorted = [...leaderboard].sort((a, b) => b.score - a.score);
-  const medals = ['🥇', '🥈', '🥉'];
+  const medals = ["🥇", "🥈", "🥉"];
   let msg = `*Leaderboard after Q${questionNumber}*\n`;
   if (sorted.length === 0) {
-    msg += 'No answers submitted yet.';
+    msg += "No answers submitted yet.";
   } else {
     sorted.forEach((entry, i) => {
-      const medal = medals[i] || '';
+      const medal = medals[i] || "";
       const displayName = nameMap[entry.user_jid]?.user_name || entry.user_jid;
       msg += `${i + 1}. ${medal} ${displayName}: ${entry.score}\n`;
     });
@@ -363,32 +462,32 @@ function generateLeaderboardMessage(leaderboard, questionNumber, nameMap = {}) {
 
 // List all group JIDs the bot is a member of
 async function listGroupJids() {
-  console.log('Fetching group JIDs...');
+  console.log("Fetching group JIDs...");
   if (!sock) {
-    console.log('Socket not initialized. Starting WhatsApp bot...');
+    console.log("Socket not initialized. Starting WhatsApp bot...");
     await startWhatsAppBot();
   }
   if (!sock.user) {
-    console.log('Waiting for connection to open before fetching groups...');
+    console.log("Waiting for connection to open before fetching groups...");
     await new Promise((resolve) => {
       const handler = ({ connection }) => {
         console.log(`Connection update during group fetch: ${connection}`);
-        if (connection === 'open') {
-          console.log('Connection successfully opened for group fetch.');
-          sock.ev.off('connection.update', handler);
+        if (connection === "open") {
+          console.log("Connection successfully opened for group fetch.");
+          sock.ev.off("connection.update", handler);
           resolve();
         }
       };
-      sock.ev.on('connection.update', handler);
+      sock.ev.on("connection.update", handler);
     });
   }
   try {
     const chats = await sock.groupFetchAllParticipating();
-    Object.values(chats).forEach(group => {
+    Object.values(chats).forEach((group) => {
       console.log(`Group: ${group.subject} | JID: ${group.id}`);
     });
   } catch (err) {
-    console.error('Error fetching group JIDs:', err);
+    console.error("Error fetching group JIDs:", err);
   }
 }
 
@@ -397,24 +496,27 @@ async function listGroupJidsWithNames() {
   await startWhatsAppBot();
   // Wait for connection
   if (!sock.user) {
-    await new Promise(resolve => {
+    await new Promise((resolve) => {
       const handler = ({ connection }) => {
-        if (connection === 'open') {
-          sock.ev.off('connection.update', handler); // Remove handler after first call
+        if (connection === "open") {
+          sock.ev.off("connection.update", handler); // Remove handler after first call
           resolve();
         }
       };
-      sock.ev.on('connection.update', handler);
+      sock.ev.on("connection.update", handler);
     });
   }
   const chats = await sock.groupFetchAllParticipating();
-  return Object.values(chats).map(group => ({ jid: group.id, name: group.subject }));
+  return Object.values(chats).map((group) => ({
+    jid: group.id,
+    name: group.subject,
+  }));
 }
 
 // Minimal test function to send a message and log responses
 async function testSendAndReceive(groupJid, text) {
   await sendGroupMessage(groupJid, text);
-  console.log('Waiting for responses... (check logs for incoming messages)');
+  console.log("Waiting for responses... (check logs for incoming messages)");
 }
 
 // Expose a getter for the current socket and QR code
@@ -423,10 +525,10 @@ function getSocket() {
 }
 
 // Listen for QR code updates and store latest as data URL
-const qrcode = require('qrcode');
-global.latestQr = '';
+const qrcode = require("qrcode");
+global.latestQr = "";
 function setupQrListener(sock) {
-  sock.ev.on('connection.update', async (update) => {
+  sock.ev.on("connection.update", async (update) => {
     if (update.qr) {
       global.latestQr = await qrcode.toDataURL(update.qr);
     }
@@ -437,12 +539,12 @@ function setupQrListener(sock) {
 if (require.main === module) {
   (async () => {
     const [, , arg1, arg2, ...rest] = process.argv;
-    if (arg1 === 'list-groups') {
+    if (arg1 === "list-groups") {
       await startWhatsAppBot();
       await listGroupJids();
       process.exit(0);
-    } else if (arg1 === 'test-send' && arg2 && rest.length > 0) {
-      const message = rest.join(' ');
+    } else if (arg1 === "test-send" && arg2 && rest.length > 0) {
+      const message = rest.join(" ");
       await testSendAndReceive(arg2, message);
       process.exit(0);
     } else if (arg1 && arg2) {
@@ -450,9 +552,11 @@ if (require.main === module) {
       await startWhatsAppBot();
       scheduleMockTestToGroup(arg1, arg2);
     } else {
-      console.log('To schedule: node whatsappBot.js <mockTestId> <groupJid>');
-      console.log('To list groups: node whatsappBot.js list-groups');
-      console.log('To test send: node whatsappBot.js test-send <groupJid> <message>');
+      console.log("To schedule: node whatsappBot.js <mockTestId> <groupJid>");
+      console.log("To list groups: node whatsappBot.js list-groups");
+      console.log(
+        "To test send: node whatsappBot.js test-send <groupJid> <message>"
+      );
     }
   })();
 }
@@ -461,32 +565,40 @@ async function runScheduledMockTest() {
   // 1. Find the next published mock test with start_date + start_time >= now
   const now = DateTime.now().toUTC();
   const { data: tests, error } = await supabase
-    .from('mock_tests')
-    .select('*')
-    .eq('published', true)
-    .eq('status', 'active');
+    .from("mock_tests")
+    .select("*")
+    .eq("published", true)
+    .eq("status", "active");
   if (error || !tests || tests.length === 0) {
-    console.log('No upcoming published mock tests found.');
+    console.log("No upcoming published mock tests found.");
     return;
   }
   // Find the test with the earliest start time >= now
   let nextTest = null;
   let nextStart = null;
   for (const test of tests) {
-    const start = DateTime.fromISO(test.start_date + 'T' + test.start_time, { zone: 'utc' });
+    const start = DateTime.fromISO(test.start_date + "T" + test.start_time, {
+      zone: "utc",
+    });
     if (start >= now && (!nextStart || start < nextStart)) {
       nextTest = test;
       nextStart = start;
     }
   }
   if (!nextTest) {
-    console.log('No mock test scheduled for the future.');
+    console.log("No mock test scheduled for the future.");
     return;
   }
-  const waitMs = nextStart.diff(now).as('milliseconds');
-  console.log(`Next mock test (${nextTest.id}) scheduled at ${nextStart.toISO()} (waiting ${Math.round(waitMs/1000)} seconds)`);
+  const waitMs = nextStart.diff(now).as("milliseconds");
+  console.log(
+    `Next mock test (${
+      nextTest.id
+    }) scheduled at ${nextStart.toISO()} (waiting ${Math.round(
+      waitMs / 1000
+    )} seconds)`
+  );
   if (waitMs > 0) {
-    await new Promise(res => setTimeout(res, waitMs));
+    await new Promise((res) => setTimeout(res, waitMs));
   }
   // Start the quiz for all assigned WhatsApp groups
   for (const groupJid of nextTest.whatsapp_groups || []) {
