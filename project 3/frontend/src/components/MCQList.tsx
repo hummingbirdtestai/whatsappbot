@@ -142,10 +142,10 @@ export const MCQList: React.FC = () => {
                             options: Array.isArray(mcq.options)
                               ? mcq.options
                               : Object.values(mcq.options),
-                            correctAnswer: Array.isArray(mcq.options)
-                              ? mcq.correctAnswer
+                            answer: Array.isArray(mcq.options)
+                              ? mcq.answer
                               : Object.keys(mcq.options).indexOf(
-                                  mcq.answer || mcq.correctAnswer || ""
+                                  mcq.answer || mcq.answer || ""
                                 ),
                           })
                         }
@@ -161,10 +161,10 @@ export const MCQList: React.FC = () => {
                             options: Array.isArray(mcq.options)
                               ? mcq.options
                               : Object.values(mcq.options),
-                            correctAnswer: Array.isArray(mcq.options)
-                              ? mcq.correctAnswer
+                            answer: Array.isArray(mcq.options)
+                              ? mcq.answer
                               : Object.keys(mcq.options).indexOf(
-                                  mcq.answer || mcq.correctAnswer || ""
+                                  mcq.answer || mcq.answer || ""
                                 ),
                           })
                         }
@@ -307,7 +307,7 @@ export const MCQList: React.FC = () => {
                     <div
                       key={i}
                       className={`p-3 rounded-lg ${
-                        viewingMCQ.correctAnswer === i
+                        viewingMCQ.answer === i
                           ? "bg-emerald-600 text-white"
                           : "bg-slate-700 text-slate-300"
                       }`}

@@ -12,7 +12,7 @@ export const EditMCQModal: React.FC<EditMCQModalProps> = ({ mcq, onClose }) => {
   const [formData, setFormData] = useState({
     question: mcq.question,
     options: [...mcq.options],
-    correctAnswer: mcq.correctAnswer,
+    answer: mcq.answer,
     category: mcq.category,
     difficulty: mcq.difficulty,
     explanation: mcq.explanation || "",
@@ -36,7 +36,7 @@ export const EditMCQModal: React.FC<EditMCQModalProps> = ({ mcq, onClose }) => {
             acc[String.fromCharCode(65 + index)] = option;
             return acc;
           }, {}),
-          correctAnswer: String.fromCharCode(65 + formData.correctAnswer),
+          answer: String.fromCharCode(65 + formData.answer),
           explanation: formData.explanation,
         }),
       });
@@ -88,11 +88,9 @@ export const EditMCQModal: React.FC<EditMCQModalProps> = ({ mcq, onClose }) => {
                 <div key={index} className="flex items-center gap-3">
                   <input
                     type="radio"
-                    name="correctAnswer"
-                    checked={formData.correctAnswer === index}
-                    onChange={() =>
-                      setFormData({ ...formData, correctAnswer: index })
-                    }
+                    name="answer"
+                    checked={formData.answer === index}
+                    onChange={() => setFormData({ ...formData, answer: index })}
                     className="text-emerald-600 focus:ring-emerald-500"
                   />
                   <input

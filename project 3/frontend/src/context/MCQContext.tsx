@@ -4,8 +4,8 @@ interface MCQ {
   id: string; // UUID from backend
   question: string;
   options: any; // backend returns object, not array
-  answer?: string; // backend uses 'answer' not 'correctAnswer'
-  correctAnswer?: string; // for compatibility
+  answer?: string; // backend uses 'answer' not 'answer'
+  answer?: string; // for compatibility
   category?: string;
   difficulty?: string;
   explanation?: string;
